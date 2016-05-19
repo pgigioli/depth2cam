@@ -10,7 +10,7 @@ void callback(const std_msgs::Float64MultiArray::ConstPtr& msg)
 {
   static tf::TransformBroadcaster br;
   tf::Transform transform;
-  transform.setOrigin( tf::Vector3(0.0, 0.0, 0.25) );
+  transform.setOrigin( tf::Vector3(-0.05, 0.0, 0.26) );
   tf::Quaternion q;
   float pan_angleRAD = msg->data[0] * pi/180;
   float tilt_angleRAD = msg->data[1] * pi/180;

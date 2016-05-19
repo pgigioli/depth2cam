@@ -11,11 +11,17 @@ find_package(catkin REQUIRED COMPONENTS
   rospy
   sensor_msgs
   std_msgs
+  tf
+  image_geometry
 )
 
 find_package( PCL REQUIRED )
+find_package ( OpenCV REQUIRED)
+
 include_directories(  ${catkin_INCLUDE_DIRS}  ${PCL_INCLUDE_DIRS} )
+
 link_directories(${PCL_LIBRARY_DIRS})
+
 add_definitions(${PCL_DEFINITIONS})
 
 ## System dependencies are found with CMake's conventions
@@ -197,6 +203,8 @@ include_directories(
 
 add_executable(depth2cam_projection src/depth2cam_projection.cpp)
 add_executable(webcam_tf_broadcaster src/webcam_tf_broadcaster.cpp)
+add_executable(dummy_cam_angles src/dummy_cam_angles.cpp)
 
-target_link_libraries(depth2cam_projection ${PCL_LIBRARIES} ${catkin_LIBRARIES})
-target_link_libraries(webcam_tf_broadcaster ${PCL_LIBRARIES} ${catkin_LIBRARIES})
+target_link_libraries(depth2cam_projection ${PCL_LIBRARIES} ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+target_link_libraries(webcam_tf_broadcaster ${PCL_LIBRARIES} ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+target_link_libraries(dummy_cam_angles ${catkin_LIBRARIES})
