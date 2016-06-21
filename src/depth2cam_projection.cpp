@@ -11,21 +11,25 @@
 #include <pcl/point_types.h>
 #include <pcl_ros/point_cloud.h>
 #include <geometry_msgs/Point.h>
+#include <geometry_msgs/PointStamped.h>
 #include <image_geometry/pinhole_camera_model.h>
 #include <tf/transform_listener.h>
 #include <math.h>
 #include <tf/transform_datatypes.h>
+#include <std_msgs/Float64MultiArray.h>
 
 using namespace std;
 using namespace cv;
 using namespace cv::gpu;
 
-typedef pcl::PointCloud<pcl::PointXYZ> PointCloud;
-
-image_geometry::PinholeCameraModel cam_model;
-int frame_height;
-int frame_width;
+const double pi = 3.1415926535897;
+int FRAME_H;
+int FRAME_W;
 float centerDist;
+vector<vector<float> > DEPTH_LINE;
+int LINE_LENGTH = 80;
+float PAN_RAD;
+float TILT_RAD;
 
 class depth2cam
 {
@@ -33,8 +37,7 @@ class depth2cam
   image_transport::ImageTransport it;
   image_transport::Subscriber depthImageSub;
   image_transport::Subscriber rgbImageSub;
-  ros::Subscriber depthPointsSub;
-  ros::Subscriber camInfoSub;
+  ros::Subscriber cam_angles_sub;
   tf::TransformListener listener;
 
 public:
@@ -44,10 +47,8 @@ public:
 		&depth2cam::depthImageCallback, this);
 	rgbImageSub = it.subscribe("usb_cam/image_raw", 1,
 		&depth2cam::rgbImageCallback, this);
-	//depthPointsSub = nh.subscribe("camera/depth/points", 1,
-	//	&depth2cam::depthPointsCallback, this);
-	//camInfoSub = nh.subscribe("camera/depth/camera_info", 1,
-	//	&depth2cam::camInfoCallback, this);
+	cam_angles_sub = nh.subscribe("/cam_angles", 1,
+		&depth2cam::camAnglesCallback, this);
 
 	namedWindow("depth view");
  	namedWindow("rgb view");
@@ -60,17 +61,19 @@ public:
   }
 
 private:
-//  void camInfoCallback(const sensor_msgs::CameraInfoConstPtr& info_msg)
-//  {
-//    cam_model.fromCameraInfo(info_msg);
-//  }
+  void camAnglesCallback(const std_msgs::Float64MultiArray::ConstPtr& msg)
+  {
+	PAN_RAD = msg->data[0] * pi/180;
+	TILT_RAD = msg->data[1] * pi/180;
+	return;
+  }
 
   void depthImageCallback(const sensor_msgs::Image::ConstPtr& msg)
   {
   	try
 	{
 	  cv_bridge::CvImageConstPtr cv_ptr_depth;
-          cv_ptr_depth = cv_bridge::toCvShare(msg);
+	  cv_ptr_depth = cv_bridge::toCvShare(msg);
 
           // imshow expects a float value to lie in [0,1], so we need to normalize
           // for visualization purposes.
@@ -86,6 +89,21 @@ private:
 
 	  centerDist = cv_ptr_depth->image.at<float>( centerY, centerX );
 	  //cout << centerDist << endl;
+//for (int i = 0; i < LINE_LENGTH; i++) {
+//int x = (width*0.5) - 1 - LINE_LENGTH/2 + i;
+//int y = (height*0.5) - 1;
+//float coordx = atan2(LINE_LENGTH/2 - i, 288.0);
+//float coordy = 0.0;
+//vector<float> coords;
+//coords.push_back(coordx);
+//coords.push_back(coordy);
+//coords.push_back(cv_ptr_depth->image.at<float>(y, x));
+//DEPTH_LINE.push_back(coords);
+//coords.clear();
+
+//circle(normalized, Point(x, y), 2, (0,255,0), 2);
+//circle(normalized, Point(x, y), 1, 255, 1);
+//}
 
 	  circle(normalized, Point(centerX, centerY), 2, (0,255,0), 2);
 	  circle(normalized, Point(centerX, centerY), 1, 255, 1);
@@ -129,27 +147,42 @@ private:
 
 	if (isnan(centerDist) == 0)
 	{
+//for (int i = 0; i < LINE_LENGTH; i++) {
+	  geometry_msgs::PointStamped depthPoint, depthPoint2rgb;
+	  depthPoint.header.seq = 0;
+	  depthPoint.header.stamp = ros::Time(0);
+	  depthPoint.header.frame_id = "camera_depth_optical_frame";
+//vector<float> vector = DEPTH_LINE[i];
+	  depthPoint.point.x = centerDist;
+	  depthPoint.point.y = 0.0;
+	  depthPoint.point.z = 0.0;
+//depthPoint.point.z = vector[2];
+//depthPoint.point.x = vector[0];
+//depthPoint.point.y = vector[1];
+	  listener.transformPoint("/webcam", depthPoint, depthPoint2rgb);
+cout << depthPoint2rgb << endl;
 	  tf::Matrix3x3 m(transform.getRotation());
 	  double roll, pitch, yaw;
 	  m.getRPY(roll, pitch, yaw);
 
-	  float xdiff = transform.getOrigin().x() - centerDist;
-	  float ydiff = transform.getOrigin().y();
-	  float zdiff = transform.getOrigin().z();
-
-	  float v_angle = atan2(zdiff, xdiff);
+float xdiff = depthPoint2rgb.point.x;
+float ydiff = depthPoint2rgb.point.y;
+float zdiff = depthPoint2rgb.point.z;
+cout << "depth point: " << xdiff << ", " << ydiff << ", " << zdiff << endl;
+	  float v_angle = atan2(zdiff, xdiff) + TILT_RAD;// - 0.052399;
 	  float h_angle = atan2(ydiff, xdiff);
+cout << "v angle: " << v_angle << endl;
+cout << "h angle: " << h_angle << endl;
+	  float focal_length = 292.0; //292
 
-	  float v_focal_length = 215.111;
-	  float u_focal_length = 288.648;
-
-	  int v = v_focal_length*tan(v_angle+pitch);
-	  int u = u_focal_length*tan(h_angle+yaw);
-
-	  int pixel_y = (frame_height/2) - 1 - v;
-	  int pixel_x = (frame_width/2) - 1 + u;
+	  int v = focal_length*tan(v_angle);
+	  int u = focal_length*tan(h_angle);
+cout << "v: " << v << endl;
+cout << "u: " << u << endl;
+	  int pixel_y = (FRAME_H/2) - 1 - v;
+	  int pixel_x = (FRAME_W/2) - 1 - u;
 cout << "pixel y: " << pixel_y << endl;
-cout<<"pixel x: " << pixel_x<<endl;
+cout << "pixel x: " << pixel_x<<endl;
 
 
 	  circle(cv_ptr_rgb, Point(pixel_x, pixel_y), 2, Scalar(255,0,255), 2);
@@ -158,37 +191,14 @@ cout<<"pixel x: " << pixel_x<<endl;
   	imshow("rgb view", cv_ptr_rgb);
   	waitKey(1);
   }
-
-/*  void depthPointsCallback(const PointCloud::ConstPtr& msg)
-  {
-  	PointCloud depth = *msg;
-  	int frameHeight = msg->height;
-  	int frameWidth = msg->width;
-  	int centerIndex = 319*239; //frameHeight*frameWidth*0.25;
-  	cout << depth.at(centerIndex) << endl;
-
-  	geometry_msgs::Point depthXYZ;
-  	depthXYZ.x = depth.at(centerIndex).x;
-  	depthXYZ.y = depth.at(centerIndex).y;
-  	depthXYZ.z = depth.at(centerIndex).z;
-  	cout << depthXYZ << endl;
-  	cout << " " << endl;
-
-  	Point3d pt_cv(depthXYZ.x, depthXYZ.y, depthXYZ.z);
-  	Point2d uv;
-  	uv = cam_model.project3dToPixel(pt_cv);
-
-	cout << uv << endl;
-	cout << " " << endl;
-  }*/
 };
 
 int main(int argc, char **argv)
 {
   ros::init(argc, argv, "depth2cam_projection");
 
-  ros::param::get("/usb_cam/image_width", frame_width);
-  ros::param::get("/usb_cam/image_height", frame_height);
+  ros::param::get("/usb_cam/image_width", FRAME_W);
+  ros::param::get("/usb_cam/image_height", FRAME_H);
 
   depth2cam d2c;
   ros::spin();
